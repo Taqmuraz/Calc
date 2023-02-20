@@ -5,7 +5,17 @@ import java.util.Scanner;
 
 interface TokenStream
 {
+    // contract : end = null
     String next();
+
+    default TokenStream append(String...tokens)
+    {
+        return new AppendTokenStream(this, tokens);
+    }
+    default TokenStream prepend(String...tokens)
+    {
+        return new PrependTokenStream(this, tokens);
+    }
 }
 
 interface Value
@@ -35,6 +45,20 @@ interface BinaryExpression
 
 class ExpressionSyntax implements Syntax
 {
+    Value nextValue(TokenStream stream)
+    {
+        String token = stream.next();
+        if (Character.isDigit(token.charAt(0)))
+        {
+            return new NumberSyntax().value(stream.prepend(token));
+        }
+        if (token.equals("("))
+        {
+            return new BraceSyntax().value(stream.prepend(token));
+        }
+        return () -> 0f;
+    }
+
     @Override
     public Value value(TokenStream stream)
     {
@@ -50,13 +74,14 @@ class ExpressionSyntax implements Syntax
 
         while(!token.equals(")"))
         {
-            if (Character.isDigit(token.charAt(0)))
+            if (operations.containsKey(token))
             {
-                value = new NumberSyntax().value(new PrependTokenStream(stream, token));
+                Value second = nextValue(stream);
+                value = operations.get(token).value(value, second);
             }
-            else if (operations.containsKey(token))
+            else
             {
-                Value second = new NumberSyntax().value(stream);
+                value = nextValue(stream.prepend(token));
             }
 
             token = stream.next();
@@ -71,7 +96,17 @@ class BraceSyntax implements Syntax
     @Override
     public Value value(TokenStream stream)
     {
+        stream.next();
         return new ExpressionSyntax().value(stream);
+    }
+}
+
+class GlobalSyntax implements Syntax
+{
+    @Override
+    public Value value(TokenStream stream)
+    {
+        return new BraceSyntax().value(stream.prepend("(").append(")"));
     }
 }
 
@@ -109,6 +144,31 @@ class PrependTokenStream implements TokenStream
     {
         if (position < tokens.length) return tokens[position++];
         else return stream.next();
+    }
+}
+
+class AppendTokenStream implements TokenStream
+{
+    int position;
+    String[] tokens;
+    TokenStream stream;
+
+    public AppendTokenStream(TokenStream stream, String... tokens)
+    {
+        this.stream = stream;
+        this.tokens = tokens;
+    }
+
+    @Override
+    public String next()
+    {
+        if (position < tokens.length)
+        {
+            String token = stream.next();
+            if (token == null) return tokens[position++];
+            return token;
+        }
+        return null;
     }
 }
 
@@ -178,12 +238,6 @@ public class Program
         String input = scanner.nextLine();
         scanner.close();
         TokenStream stream = new StandardTokenReader(new ClassicSymbolKind()).read(input);
-        String token;
-        do
-        {
-            token = stream.next();
-            System.out.println(token);
-        }
-        while(token != null);
+        System.out.println(new GlobalSyntax().value(stream).get());
     }
 }
